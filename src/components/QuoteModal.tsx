@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calendar, FileText, User, MapPin, Phone, Mail, Hash } from 'lucide-react';
 import { Quote, QuoteItem, Lead, BusinessProfile, QuoteStatus } from '../types';
-import { formatCurrency } from '../utils/formatters';
+import { addDaysISO, formatCurrency, nextQuoteNumber, round2, toLocalISODate } from '../utils/formatters';
 
 interface QuoteModalProps {
   isOpen: boolean;
@@ -9,7 +9,7 @@ interface QuoteModalProps {
   initialLead?: Lead | null;
   leads: Lead[];
   profile: BusinessProfile;
-  existingQuotesCount: number;
+  existingQuoteNumbers: string[];
   onClose: () => void;
   onSave: (quote: Quote) => void;
 }
@@ -20,7 +20,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   initialLead,
   leads,
   profile,
-  existingQuotesCount,
+  existingQuoteNumbers,
   onClose,
   onSave,
 }) => {
@@ -38,10 +38,13 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   const [taxPercent, setTaxPercent] = useState<number>(profile.defaultTaxRate || 0);
 
   const [items, setItems] = useState<QuoteItem[]>([
-    { id: 'item-1', description: 'Standard Service Labor', quantity: 1, unitPrice: 150, total: 150 },
+    { id: 'item-1', description: '', quantity: 1, unitPrice: 0, total: 0 },
   ]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // A primitive key: the numbers array is rebuilt on every parent render and would otherwise reset the form while typing.
+  const numbersKey = existingQuoteNumbers.join('|');
 
   useEffect(() => {
     if (quoteToEdit) {
@@ -63,9 +66,9 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
           : [{ id: 'item-1', description: '', quantity: 1, unitPrice: 0, total: 0 }]
       );
     } else {
-      const today = new Date().toISOString().split('T')[0];
-      const validUntil = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
-      const nextNum = `LC-${new Date().getFullYear()}-${String(existingQuotesCount + 1).padStart(3, '0')}`;
+      const today = toLocalISODate();
+      const validUntil = addDaysISO(30);
+      const nextNum = nextQuoteNumber(numbersKey ? numbersKey.split('|') : []);
 
       setQuoteNumber(nextNum);
       setIssueDate(today);
@@ -84,10 +87,10 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         setItems([
           {
             id: `item-${Date.now()}`,
-            description: `${initialLead.serviceType} Work - Scope per initial inquiry`,
+            description: `${initialLead.serviceType} work`,
             quantity: 1,
-            unitPrice: initialLead.estimatedValue || 200,
-            total: initialLead.estimatedValue || 200,
+            unitPrice: initialLead.estimatedValue || 0,
+            total: initialLead.estimatedValue || 0,
           },
         ]);
       } else {
@@ -99,16 +102,25 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         setItems([
           {
             id: `item-${Date.now()}`,
-            description: 'Service Scope & Materials',
+            description: '',
             quantity: 1,
-            unitPrice: 150,
-            total: 150,
+            unitPrice: 0,
+            total: 0,
           },
         ]);
       }
     }
     setErrors({});
-  }, [quoteToEdit, initialLead, isOpen, existingQuotesCount, profile]);
+  }, [quoteToEdit, initialLead, isOpen, numbersKey, profile]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -126,24 +138,29 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         setItems([
           {
             id: items[0].id,
-            description: `${lead.serviceType} Service`,
+            description: `${lead.serviceType} work`,
             quantity: 1,
-            unitPrice: lead.estimatedValue || 150,
-            total: lead.estimatedValue || 150,
+            unitPrice: lead.estimatedValue || 0,
+            total: lead.estimatedValue || 0,
           },
         ]);
       }
     }
   };
 
+  // Inputs keep the raw text while the user types (so "1." or an empty box works); numbers are parsed here.
+  const num = (value: unknown) => {
+    const n = parseFloat(String(value));
+    return isFinite(n) ? n : 0;
+  };
+  const lineTotal = (item: QuoteItem) => round2(Math.max(0, num(item.quantity)) * Math.max(0, num(item.unitPrice)));
+
   const handleItemChange = (index: number, field: keyof QuoteItem, value: any) => {
     const updated = [...items];
     const item = { ...updated[index], [field]: value };
 
     if (field === 'quantity' || field === 'unitPrice') {
-      const q = field === 'quantity' ? Math.max(0, parseFloat(value) || 0) : item.quantity;
-      const u = field === 'unitPrice' ? Math.max(0, parseFloat(value) || 0) : item.unitPrice;
-      item.total = q * u;
+      item.total = lineTotal(item);
     }
 
     updated[index] = item;
@@ -169,11 +186,11 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   };
 
   // Calculations
-  const subtotal = items.reduce((acc, curr) => acc + (curr.total || 0), 0);
-  const discountAmount = (subtotal * (discountPercent || 0)) / 100;
+  const subtotal = round2(items.reduce((acc, curr) => acc + lineTotal(curr), 0));
+  const discountAmount = round2((subtotal * (discountPercent || 0)) / 100);
   const taxableBase = Math.max(0, subtotal - discountAmount);
-  const taxAmount = (taxableBase * (taxPercent || 0)) / 100;
-  const grandTotal = taxableBase + taxAmount;
+  const taxAmount = round2((taxableBase * (taxPercent || 0)) / 100);
+  const grandTotal = round2(taxableBase + taxAmount);
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -200,6 +217,10 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
       const hasEmptyDesc = items.some((item) => !item.description.trim());
       if (hasEmptyDesc) {
         newErrors.items = 'All line items must have a description.';
+      } else if (items.some((item) => !(num(item.quantity) > 0))) {
+        newErrors.items = 'Quantity must be greater than 0 on every line.';
+      } else if (items.some((item) => String(item.unitPrice).trim() === '' || num(item.unitPrice) < 0)) {
+        newErrors.items = 'Unit price must be 0 or more on every line.';
       }
     }
 
@@ -221,7 +242,13 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
       customerAddress: customerAddress.trim(),
       issueDate,
       validUntilDate,
-      items,
+      items: items.map((item) => ({
+        id: item.id,
+        description: item.description.trim(),
+        quantity: num(item.quantity),
+        unitPrice: num(item.unitPrice),
+        total: lineTotal(item),
+      })),
       subtotal,
       discountPercent: Number(discountPercent) || 0,
       taxPercent: Number(taxPercent) || 0,
@@ -257,7 +284,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-6">
           {/* Quick Lead Autofill */}
           <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
@@ -333,7 +360,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="e.g. Sarah Jenkins"
+                placeholder="e.g. Salma Bennani"
                 className={`w-full px-3 py-2 text-sm rounded-lg border focus:outline-hidden focus:ring-2 ${
                   errors.customerName ? 'border-rose-300 bg-rose-50/20' : 'border-slate-300 bg-white'
                 }`}
@@ -350,7 +377,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                 type="text"
                 value={customerAddress}
                 onChange={(e) => setCustomerAddress(e.target.value)}
-                placeholder="e.g. 442 Oak Valley Dr, Denver CO"
+                placeholder="e.g. Villa Les Palmiers, Casablanca"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               />
             </div>
@@ -364,7 +391,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                 type="tel"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="e.g. +1 (555) 849-2104"
+                placeholder="e.g. 0661 23 45 67"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               />
             </div>
@@ -378,7 +405,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                 type="email"
                 value={customerEmail}
                 onChange={(e) => setCustomerEmail(e.target.value)}
-                placeholder="e.g. sarah@example.com"
+                placeholder="e.g. salma@example.com"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               />
             </div>
@@ -421,14 +448,14 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                           type="text"
                           value={item.description}
                           onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                          placeholder="e.g. Interior paint 2 coats + trim"
+                          placeholder="e.g. Interior paint, 2 coats + trim"
                           className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-slate-900"
                         />
                       </td>
                       <td className="p-2">
                         <input
                           type="number"
-                          min="0.1"
+                          min="0.01"
                           step="any"
                           value={item.quantity}
                           onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
@@ -446,7 +473,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
                         />
                       </td>
                       <td className="p-2 text-right font-mono tabular-nums font-semibold text-slate-800">
-                        {formatCurrency(item.total, profile.currencySymbol)}
+                        {formatCurrency(lineTotal(item), profile.currencySymbol)}
                       </td>
                       <td className="p-2 text-center">
                         <button

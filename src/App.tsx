@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AppDataPayload,
   BusinessProfile,
@@ -74,13 +74,22 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Sync state changes to storage
+  // Persist every change. (Saving inside a state updater is a side effect React may run twice.)
+  const saveWarned = useRef(false);
+  useEffect(() => {
+    const ok = saveAppData(appData);
+    if (!ok && !saveWarned.current) {
+      saveWarned.current = true;
+      showToast(
+        'Could not save on this device',
+        'Browser storage is full or blocked. Export a backup from Settings so you do not lose your data.',
+        'error'
+      );
+    }
+  }, [appData, showToast]);
+
   const updateAppData = useCallback((updater: (prev: AppDataPayload) => AppDataPayload) => {
-    setAppData((prev) => {
-      const updated = updater(prev);
-      saveAppData(updated);
-      return updated;
-    });
+    setAppData((prev) => updater(prev));
   }, []);
 
   // --- Lead Handlers ---
@@ -162,15 +171,23 @@ export default function App() {
       let leads = prev.leads;
       if (quote.leadId) {
         leads = prev.leads.map((l) => {
-          if (l.id === quote.leadId) {
-            const shouldAdvanceStatus = l.status === 'new' || l.status === 'contacted';
+          if (l.id !== quote.leadId) return l;
+          if (quote.status === 'accepted') {
+            // Accepted quote = won job (keeps a revenue figure the user already typed in).
+            const alreadyWon = l.status === 'won' && l.actualWonRevenue !== undefined;
             return {
               ...l,
               quoteId: quote.id,
-              status: shouldAdvanceStatus ? 'quote_sent' : l.status,
+              status: 'won' as LeadStatus,
+              actualWonRevenue: alreadyWon ? l.actualWonRevenue : quote.total,
             };
           }
-          return l;
+          const shouldAdvanceStatus = l.status === 'new' || l.status === 'contacted';
+          return {
+            ...l,
+            quoteId: quote.id,
+            status: (shouldAdvanceStatus ? 'quote_sent' : l.status) as LeadStatus,
+          };
         });
       }
 
@@ -197,6 +214,7 @@ export default function App() {
         updateAppData((prev) => ({
           ...prev,
           quotes: prev.quotes.filter((q) => q.id !== quote.id),
+          leads: prev.leads.map((l) => (l.quoteId === quote.id ? { ...l, quoteId: undefined } : l)),
         }));
         setConfirmConfig(null);
         showToast('Quote Deleted', `Quote ${quote.quoteNumber} was removed.`, 'info');
@@ -262,10 +280,28 @@ export default function App() {
     setAppData(blank);
   };
 
-  const handleImportData = (incoming: AppDataPayload, mode: 'replace' | 'merge') => {
+  const handleStartFresh = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Start with your own data?',
+      message:
+        'This removes the sample leads and quotes so you can enter your real business. Nothing you have not added yourself is kept.',
+      confirmLabel: 'Remove samples',
+      isDestructive: false,
+      onConfirm: () => {
+        handleClearAllData();
+        setConfirmConfig(null);
+        setCurrentTab('settings');
+        showToast('Ready for your data', 'Fill in your business details, then add your first lead.', 'success');
+      },
+    });
+  };
+
+  const handleImportData = (incoming: AppDataPayload, requestedMode: 'replace' | 'merge') => {
+    // Merging a backup into the built-in sample records would keep the fake ones, so replace instead.
+    const mode = appData.isDemo ? 'replace' : requestedMode;
     if (mode === 'replace') {
-      saveAppData(incoming);
-      setAppData(incoming);
+      setAppData({ ...incoming, isDemo: false });
     } else {
       updateAppData((prev) => {
         const mergedLeads = [...prev.leads];
@@ -286,6 +322,7 @@ export default function App() {
           ...prev,
           leads: mergedLeads,
           quotes: mergedQuotes,
+          isDemo: false,
         };
       });
     }
@@ -304,12 +341,18 @@ export default function App() {
       />
 
       {/* Main Viewport Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main
+        className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 ${
+          quotePrintPreview ? 'no-print' : ''
+        }`}
+      >
         {currentTab === 'dashboard' && (
           <DashboardView
             leads={appData.leads}
             quotes={appData.quotes}
             profile={appData.profile}
+            isDemo={!!appData.isDemo}
+            onStartFresh={handleStartFresh}
             onNavigateToLeads={() => setCurrentTab('leads')}
             onNavigateToQuotes={() => setCurrentTab('quotes')}
             onNavigateToFollowUps={(leadId) => {
@@ -332,6 +375,7 @@ export default function App() {
           <LeadsView
             leads={appData.leads}
             currencySymbol={appData.profile.currencySymbol}
+            defaultCountryCode={appData.profile.defaultCountryCode}
             onOpenCreate={() => {
               setLeadToEdit(null);
               setIsLeadModalOpen(true);
@@ -397,7 +441,16 @@ export default function App() {
             onClearAllData={handleClearAllData}
             onImportData={handleImportData}
             onShowToast={showToast}
-            onRequestConfirm={(config) => setConfirmConfig({ ...config, isOpen: true })}
+            onRequestConfirm={(config) =>
+              setConfirmConfig({
+                ...config,
+                isOpen: true,
+                onConfirm: () => {
+                  setConfirmConfig(null);
+                  config.onConfirm();
+                },
+              })
+            }
           />
         )}
       </main>
@@ -420,7 +473,7 @@ export default function App() {
         initialLead={quoteInitialLead}
         leads={appData.leads}
         profile={appData.profile}
-        existingQuotesCount={appData.quotes.length}
+        existingQuoteNumbers={appData.quotes.map((q) => q.quoteNumber)}
         onClose={() => {
           setIsQuoteModalOpen(false);
           setQuoteToEdit(null);

@@ -6,13 +6,12 @@ import {
   Edit2,
   Trash2,
   MessageSquare,
-  CheckCircle,
   Calendar,
-  DollarSign,
   Search,
 } from 'lucide-react';
 import { Quote, QuoteStatus, BusinessProfile, Lead } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { useMediaQuery } from '../utils/useMediaQuery';
 
 interface QuotesViewProps {
   quotes: Quote[];
@@ -39,6 +38,7 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const isDesktop = useMediaQuery('(min-width: 768px)');
 
   const filteredQuotes = useMemo(() => {
     return quotes.filter((q) => {
@@ -47,7 +47,9 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
         const matchesNum = q.quoteNumber.toLowerCase().includes(query);
         const matchesCust = q.customerName.toLowerCase().includes(query);
         const matchesAddress = q.customerAddress.toLowerCase().includes(query);
-        if (!matchesNum && !matchesCust && !matchesAddress) return false;
+        const matchesContact =
+          q.customerEmail.toLowerCase().includes(query) || q.customerPhone.toLowerCase().includes(query);
+        if (!matchesNum && !matchesCust && !matchesAddress && !matchesContact) return false;
       }
 
       if (statusFilter !== 'all' && q.status !== statusFilter) {
@@ -76,6 +78,63 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
       default:
         return 'text-slate-600 bg-slate-50 border-slate-200';
     }
+  };
+
+  const statusSelect = (q: Quote) => (
+    <select
+      value={q.status}
+      onChange={(e) => onUpdateStatus(q.id, e.target.value as QuoteStatus)}
+      aria-label={`Status of ${q.quoteNumber}`}
+      className={`text-xs font-semibold px-2.5 py-1 rounded-md border cursor-pointer focus:outline-hidden ${statusColorClass(
+        q.status
+      )}`}
+    >
+      <option value="draft">Draft</option>
+      <option value="sent">Sent</option>
+      <option value="accepted">Accepted</option>
+      <option value="declined">Declined</option>
+    </select>
+  );
+
+  const actionButtons = (q: Quote, size: 'sm' | 'lg') => {
+    const pad = size === 'lg' ? 'p-2.5' : 'p-1.5';
+    const icon = size === 'lg' ? 'w-5 h-5' : 'w-4 h-4';
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPrintPreview(q)}
+          className={`${pad} text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer`}
+          title="Print or view quote"
+          aria-label={`Print ${q.quoteNumber}`}
+        >
+          <Printer className={icon} />
+        </button>
+        <button
+          onClick={() => onFollowUpOnQuote(q)}
+          className={`${pad} text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer`}
+          title="Draft follow-up message for this quote"
+          aria-label={`Follow up on ${q.quoteNumber}`}
+        >
+          <MessageSquare className={icon} />
+        </button>
+        <button
+          onClick={() => onOpenEdit(q)}
+          className={`${pad} text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer`}
+          title="Edit quote"
+          aria-label={`Edit ${q.quoteNumber}`}
+        >
+          <Edit2 className={icon} />
+        </button>
+        <button
+          onClick={() => onDeleteQuote(q)}
+          className={`${pad} text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer`}
+          title="Delete quote"
+          aria-label={`Delete ${q.quoteNumber}`}
+        >
+          <Trash2 className={icon} />
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -190,6 +249,30 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
             </button>
           </div>
         </div>
+      ) : !isDesktop ? (
+        <div className="space-y-3">
+          {filteredQuotes.map((q) => (
+            <div key={q.id} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono font-bold text-slate-900">{q.quoteNumber}</div>
+                  <div className="font-semibold text-slate-900 mt-0.5">{q.customerName}</div>
+                  {q.customerAddress && <div className="text-xs text-slate-500 mt-0.5">{q.customerAddress}</div>}
+                </div>
+                <div className="text-right shrink-0 font-mono tabular-nums">
+                  <div className="font-bold text-slate-900">{formatCurrency(q.total, profile.currencySymbol)}</div>
+                  {q.taxPercent > 0 && <div className="text-[11px] text-slate-400">Incl. {q.taxPercent}% Tax</div>}
+                </div>
+              </div>
+              <div className="text-xs text-slate-500">
+                {q.items.length} {q.items.length === 1 ? 'item' : 'items'} · Issued {formatDate(q.issueDate)} · Valid until{' '}
+                {formatDate(q.validUntilDate)}
+              </div>
+              <div>{statusSelect(q)}</div>
+              <div className="pt-2 border-t border-slate-100">{actionButtons(q, 'lg')}</div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
@@ -255,64 +338,11 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
                     </td>
 
                     {/* Status */}
-                    <td className="py-3.5 px-4 align-top">
-                      <select
-                        value={q.status}
-                        onChange={(e) => onUpdateStatus(q.id, e.target.value as QuoteStatus)}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-md border cursor-pointer focus:outline-hidden ${statusColorClass(
-                          q.status
-                        )}`}
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="sent">Sent</option>
-                        <option value="accepted">Accepted</option>
-                        <option value="declined">Declined</option>
-                      </select>
-                    </td>
+                    <td className="py-3.5 px-4 align-top">{statusSelect(q)}</td>
 
                     {/* Actions */}
-                    <td className="py-3.5 px-4 align-top text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {/* Print / PDF preview */}
-                        <button
-                          onClick={() => onPrintPreview(q)}
-                          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                          title="Print or view quote"
-                          aria-label={`Print ${q.quoteNumber}`}
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        {/* Follow up on quote */}
-                        <button
-                          onClick={() => onFollowUpOnQuote(q)}
-                          className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
-                          title="Draft follow-up message for this quote"
-                          aria-label={`Follow up on ${q.quoteNumber}`}
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                        </button>
-
-                        {/* Edit */}
-                        <button
-                          onClick={() => onOpenEdit(q)}
-                          className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                          title="Edit quote"
-                          aria-label={`Edit ${q.quoteNumber}`}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          onClick={() => onDeleteQuote(q)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                          title="Delete quote"
-                          aria-label={`Delete ${q.quoteNumber}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                    <td className="py-3.5 px-4 align-top">
+                      <div className="flex justify-end">{actionButtons(q, 'sm')}</div>
                     </td>
                   </tr>
                 ))}

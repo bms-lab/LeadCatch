@@ -7,18 +7,32 @@ import {
   Mail,
   Calendar,
   MessageSquare,
+  MessageCircle,
   FileCheck,
   Edit2,
   Trash2,
-  AlertCircle,
-  ExternalLink,
 } from 'lucide-react';
-import { Lead, LeadStatus, ServiceType, LeadSource } from '../types';
-import { formatCurrency, formatDate, isOverdue, isDueToday, getWhatsAppUrl } from '../utils/formatters';
+import {
+  Lead,
+  LeadStatus,
+  SERVICE_TYPES,
+  LEAD_SOURCES,
+  LEAD_STATUS_OPTIONS,
+} from '../types';
+import {
+  formatCurrency,
+  formatDate,
+  isOverdue,
+  isDueToday,
+  getWhatsAppUrl,
+  toInternationalDigits,
+} from '../utils/formatters';
+import { useMediaQuery } from '../utils/useMediaQuery';
 
 interface LeadsViewProps {
   leads: Lead[];
   currencySymbol: string;
+  defaultCountryCode?: string;
   onOpenCreate: () => void;
   onOpenEdit: (lead: Lead) => void;
   onDeleteLead: (lead: Lead) => void;
@@ -27,9 +41,31 @@ interface LeadsViewProps {
   onCreateQuoteForLead: (lead: Lead) => void;
 }
 
+const isClosed = (lead: Lead) => lead.status === 'won' || lead.status === 'lost';
+
+const statusColorClass = (status: LeadStatus) => {
+  switch (status) {
+    case 'new':
+      return 'text-blue-700 bg-blue-50 border-blue-200';
+    case 'contacted':
+      return 'text-slate-700 bg-slate-100 border-slate-200';
+    case 'quote_sent':
+      return 'text-indigo-700 bg-indigo-50 border-indigo-200';
+    case 'followup_due':
+      return 'text-amber-800 bg-amber-50 border-amber-200';
+    case 'won':
+      return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    case 'lost':
+      return 'text-rose-700 bg-rose-50 border-rose-200';
+    default:
+      return 'text-slate-600 bg-slate-50 border-slate-200';
+  }
+};
+
 export const LeadsView: React.FC<LeadsViewProps> = ({
   leads,
   currencySymbol,
+  defaultCountryCode = '212',
   onOpenCreate,
   onOpenEdit,
   onDeleteLead,
@@ -42,82 +78,148 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'followup' | 'value' | 'created'>('followup');
+  const isDesktop = useMediaQuery('(min-width: 768px)');
 
   const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      const query = searchQuery.toLowerCase().trim();
-      if (query) {
-        const matchesName = lead.contactName.toLowerCase().includes(query);
-        const matchesProperty = lead.businessOrProperty.toLowerCase().includes(query);
-        const matchesPhone = lead.phone.toLowerCase().includes(query);
-        const matchesEmail = lead.email.toLowerCase().includes(query);
-        const matchesNotes = lead.notes.toLowerCase().includes(query);
-        if (!matchesName && !matchesProperty && !matchesPhone && !matchesEmail && !matchesNotes) {
-          return false;
+    const query = searchQuery.toLowerCase().trim();
+    // Typing digits finds a number whatever spacing it was saved with ("0661 23 45 67" vs "0661234567").
+    const queryDigits = query.replace(/\D/g, '');
+
+    return leads
+      .filter((lead) => {
+        if (query) {
+          const matchesText =
+            lead.contactName.toLowerCase().includes(query) ||
+            lead.businessOrProperty.toLowerCase().includes(query) ||
+            lead.phone.toLowerCase().includes(query) ||
+            lead.email.toLowerCase().includes(query) ||
+            lead.notes.toLowerCase().includes(query);
+          const matchesDigits =
+            queryDigits.length >= 3 && lead.phone.replace(/\D/g, '').includes(queryDigits);
+          if (!matchesText && !matchesDigits) return false;
         }
-      }
 
-      if (statusFilter !== 'all' && lead.status !== statusFilter) {
-        return false;
-      }
-
-      if (serviceFilter !== 'all' && lead.serviceType !== serviceFilter) {
-        return false;
-      }
-
-      if (sourceFilter !== 'all' && lead.leadSource !== sourceFilter) {
-        return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
-      if (sortBy === 'followup') {
-        return a.nextFollowUpDate.localeCompare(b.nextFollowUpDate);
-      }
-      if (sortBy === 'value') {
-        return b.estimatedValue - a.estimatedValue;
-      }
-      return b.createdAt.localeCompare(a.createdAt);
-    });
+        if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
+        if (serviceFilter !== 'all' && lead.serviceType !== serviceFilter) return false;
+        if (sourceFilter !== 'all' && lead.leadSource !== sourceFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'followup') {
+          // Open leads first (soonest follow-up on top); finished ones sink to the bottom.
+          if (isClosed(a) !== isClosed(b)) return isClosed(a) ? 1 : -1;
+          return a.nextFollowUpDate.localeCompare(b.nextFollowUpDate);
+        }
+        if (sortBy === 'value') {
+          return b.estimatedValue - a.estimatedValue;
+        }
+        return b.createdAt.localeCompare(a.createdAt);
+      });
   }, [leads, searchQuery, statusFilter, serviceFilter, sourceFilter, sortBy]);
 
-  const statusLabel = (status: LeadStatus) => {
-    switch (status) {
-      case 'new':
-        return 'New Inquiry';
-      case 'contacted':
-        return 'Contacted';
-      case 'quote_sent':
-        return 'Quote Sent';
-      case 'followup_due':
-        return 'Follow-Up Due';
-      case 'won':
-        return 'Won';
-      case 'lost':
-        return 'Lost';
-      default:
-        return status;
-    }
+  const filtersActive =
+    statusFilter !== 'all' || serviceFilter !== 'all' || sourceFilter !== 'all' || searchQuery !== '';
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setServiceFilter('all');
+    setSourceFilter('all');
   };
 
-  const statusColorClass = (status: LeadStatus) => {
-    switch (status) {
-      case 'new':
-        return 'text-blue-700 bg-blue-50 border-blue-200';
-      case 'contacted':
-        return 'text-slate-700 bg-slate-100 border-slate-200';
-      case 'quote_sent':
-        return 'text-indigo-700 bg-indigo-50 border-indigo-200';
-      case 'followup_due':
-        return 'text-amber-800 bg-amber-50 border-amber-200';
-      case 'won':
-        return 'text-emerald-700 bg-emerald-50 border-emerald-200';
-      case 'lost':
-        return 'text-rose-700 bg-rose-50 border-rose-200';
-      default:
-        return 'text-slate-600 bg-slate-50 border-slate-200';
-    }
+  const followUpFlags = (lead: Lead) => {
+    const open = !isClosed(lead);
+    return {
+      overdue: open && isOverdue(lead.nextFollowUpDate),
+      dueToday: open && isDueToday(lead.nextFollowUpDate),
+    };
   };
+
+  const statusSelect = (lead: Lead) => (
+    <select
+      value={lead.status}
+      onChange={(e) => onUpdateStatus(lead.id, e.target.value as LeadStatus)}
+      aria-label={`Status of ${lead.contactName}`}
+      className={`text-xs font-semibold px-2.5 py-1 rounded-md border cursor-pointer focus:outline-hidden ${statusColorClass(
+        lead.status
+      )}`}
+    >
+      {LEAD_STATUS_OPTIONS.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  const actionButtons = (lead: Lead, size: 'sm' | 'lg') => {
+    const pad = size === 'lg' ? 'p-2.5' : 'p-1.5';
+    const icon = size === 'lg' ? 'w-5 h-5' : 'w-4 h-4';
+    const whatsAppUrl = lead.phone ? getWhatsAppUrl(lead.phone, '', defaultCountryCode) : null;
+    const callDigits = lead.phone ? toInternationalDigits(lead.phone, defaultCountryCode) : null;
+    const base = `${pad} rounded-md transition-colors cursor-pointer`;
+    return (
+      <div className="flex items-center gap-1">
+        {whatsAppUrl && (
+          <a
+            href={whatsAppUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${base} text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50`}
+            title="Open WhatsApp chat"
+            aria-label={`WhatsApp ${lead.contactName}`}
+          >
+            <MessageCircle className={icon} />
+          </a>
+        )}
+        {callDigits && (
+          <a
+            href={`tel:+${callDigits}`}
+            className={`${base} text-slate-500 hover:text-slate-900 hover:bg-slate-100`}
+            title="Call"
+            aria-label={`Call ${lead.contactName}`}
+          >
+            <Phone className={icon} />
+          </a>
+        )}
+        <button
+          onClick={() => onStartFollowUp(lead)}
+          className={`${base} text-slate-500 hover:text-slate-900 hover:bg-slate-100`}
+          title="Generate follow-up message"
+          aria-label={`Follow up with ${lead.contactName}`}
+        >
+          <MessageSquare className={icon} />
+        </button>
+        <button
+          onClick={() => onCreateQuoteForLead(lead)}
+          className={`${base} text-slate-500 hover:text-slate-900 hover:bg-slate-100`}
+          title="Create quote for this lead"
+          aria-label={`Create quote for ${lead.contactName}`}
+        >
+          <FileCheck className={icon} />
+        </button>
+        <button
+          onClick={() => onOpenEdit(lead)}
+          className={`${base} text-slate-500 hover:text-slate-900 hover:bg-slate-100`}
+          title="Edit lead details"
+          aria-label={`Edit ${lead.contactName}`}
+        >
+          <Edit2 className={icon} />
+        </button>
+        <button
+          onClick={() => onDeleteLead(lead)}
+          className={`${base} text-slate-400 hover:text-rose-600 hover:bg-rose-50`}
+          title="Delete lead"
+          aria-label={`Delete ${lead.contactName}`}
+        >
+          <Trash2 className={icon} />
+        </button>
+      </div>
+    );
+  };
+
+  const selectClass =
+    'px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 text-slate-700 min-w-0';
 
   return (
     <div className="space-y-6">
@@ -142,63 +244,61 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row gap-3">
+        <div className="flex flex-col gap-3">
           {/* Search Input */}
-          <div className="relative flex-1">
+          <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, property address, phone, email..."
-              className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
+              placeholder="Search by name, address, phone, email..."
+              aria-label="Search leads"
+              className="w-full pl-9 pr-14 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 Clear
               </button>
             )}
           </div>
 
-          {/* Status Segmented/Select Filter */}
-          <div className="flex items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 text-slate-700"
-            >
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className={selectClass}>
               <option value="all">All Statuses</option>
-              <option value="new">New Inquiry</option>
-              <option value="contacted">Contacted</option>
-              <option value="quote_sent">Quote Sent</option>
-              <option value="followup_due">Follow-Up Due</option>
-              <option value="won">Won</option>
-              <option value="lost">Lost</option>
+              {LEAD_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
 
-            <select
-              value={serviceFilter}
-              onChange={(e) => setServiceFilter(e.target.value)}
-              className="px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 text-slate-700"
-            >
+            <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} aria-label="Filter by service" className={selectClass}>
               <option value="all">All Services</option>
-              <option value="Cleaning">Cleaning</option>
-              <option value="Painting">Painting</option>
-              <option value="Plumbing">Plumbing</option>
-              <option value="Garden Maintenance">Garden Maintenance</option>
-              <option value="Electrical">Electrical</option>
-              <option value="Handyman">Handyman</option>
-              <option value="Roofing">Roofing</option>
-              <option value="Other">Other</option>
+              {SERVICE_TYPES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+
+            <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Filter by source" className={selectClass}>
+              <option value="all">All Sources</option>
+              {LEAD_SOURCES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
 
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 text-slate-700"
+              onChange={(e) => setSortBy(e.target.value as 'followup' | 'value' | 'created')}
+              aria-label="Sort leads"
+              className={selectClass}
             >
               <option value="followup">Sort: Follow-up Date</option>
               <option value="value">Sort: Highest Value</option>
@@ -210,17 +310,14 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         {/* Active Filter Indicators */}
         <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
           <div className="flex items-center gap-2">
-            <span>Showing {filteredLeads.length} of {leads.length} leads</span>
-            {(statusFilter !== 'all' || serviceFilter !== 'all' || searchQuery) && (
+            <span>
+              Showing {filteredLeads.length} of {leads.length} leads
+            </span>
+            {filtersActive && (
               <>
                 <span aria-hidden="true">·</span>
                 <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setStatusFilter('all');
-                    setServiceFilter('all');
-                    setSourceFilter('all');
-                  }}
+                  onClick={resetFilters}
                   className="text-slate-700 hover:text-slate-900 underline font-medium cursor-pointer"
                 >
                   Reset filters
@@ -231,7 +328,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         </div>
       </div>
 
-      {/* Leads Table Container */}
+      {/* Leads */}
       {filteredLeads.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center shadow-xs">
           <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
@@ -239,7 +336,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
           </div>
           <h3 className="text-base font-semibold text-slate-900">No leads found</h3>
           <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-            {searchQuery || statusFilter !== 'all' || serviceFilter !== 'all'
+            {filtersActive
               ? 'Try adjusting your search terms or filters to find what you are looking for.'
               : 'Start logging inquiries to track your sales pipeline and schedule follow-ups.'}
           </p>
@@ -253,7 +350,65 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
             </button>
           </div>
         </div>
+      ) : !isDesktop ? (
+        /* Phone layout: one card per lead */
+        <div className="space-y-3">
+          {filteredLeads.map((lead) => {
+            const { overdue, dueToday } = followUpFlags(lead);
+            return (
+              <div key={lead.id} className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">{lead.contactName}</div>
+                    {lead.businessOrProperty && (
+                      <div className="text-xs text-slate-500 mt-0.5">{lead.businessOrProperty}</div>
+                    )}
+                    <div className="text-xs text-slate-500 mt-1">
+                      {lead.serviceType} · {lead.leadSource}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 font-mono tabular-nums">
+                    <div className="font-semibold text-sm text-slate-900">
+                      {formatCurrency(lead.estimatedValue, currencySymbol)}
+                    </div>
+                    {lead.status === 'won' && lead.actualWonRevenue !== undefined && (
+                      <div className="text-xs text-emerald-700 font-medium mt-0.5">
+                        Won: {formatCurrency(lead.actualWonRevenue, currencySymbol)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {lead.phone && (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-600 font-mono tabular-nums">
+                    <Phone className="w-3 h-3 text-slate-400" />
+                    {lead.phone}
+                  </div>
+                )}
+
+                {lead.notes && (
+                  <div className="text-xs text-slate-500 italic line-clamp-2">“{lead.notes}”</div>
+                )}
+
+                <div className="flex items-center justify-between gap-3">
+                  {statusSelect(lead)}
+                  <div className="text-right">
+                    <div className="flex items-center justify-end gap-1.5 text-xs font-mono tabular-nums text-slate-700">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      {formatDate(lead.nextFollowUpDate)}
+                    </div>
+                    {overdue && <span className="text-[11px] font-semibold text-rose-600 block">Overdue</span>}
+                    {dueToday && <span className="text-[11px] font-semibold text-amber-600 block">Due Today</span>}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100">{actionButtons(lead, 'lg')}</div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* Desktop layout: dense table */
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-sm">
@@ -269,14 +424,10 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredLeads.map((lead) => {
-                  const overdue = isOverdue(lead.nextFollowUpDate);
-                  const dueToday = isDueToday(lead.nextFollowUpDate);
+                  const { overdue, dueToday } = followUpFlags(lead);
 
                   return (
-                    <tr
-                      key={lead.id}
-                      className="hover:bg-slate-50/60 transition-colors group"
-                    >
+                    <tr key={lead.id} className="hover:bg-slate-50/60 transition-colors group">
                       {/* Contact & Property */}
                       <td className="py-3.5 px-4 align-top">
                         <div className="font-semibold text-slate-900">{lead.contactName}</div>
@@ -287,7 +438,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                         )}
                         <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
                           {lead.phone && (
-                            <span className="flex items-center gap-1 font-mono tabular-nums">
+                            <span className="flex items-center gap-1 font-mono tabular-nums whitespace-nowrap">
                               <Phone className="w-3 h-3 text-slate-400" />
                               {lead.phone}
                             </span>
@@ -301,7 +452,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Service & Source - Unboxed metadata */}
+                      {/* Service & Source */}
                       <td className="py-3.5 px-4 align-top">
                         <div className="text-slate-900 font-medium">{lead.serviceType}</div>
                         <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
@@ -310,9 +461,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                           <span>Added {formatDate(lead.createdAt)}</span>
                         </div>
                         {lead.notes && (
-                          <div className="text-xs text-slate-500 mt-1 line-clamp-1 italic">
-                            "{lead.notes}"
-                          </div>
+                          <div className="text-xs text-slate-500 mt-1 line-clamp-1 italic">“{lead.notes}”</div>
                         )}
                       </td>
 
@@ -329,22 +478,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                       </td>
 
                       {/* Status */}
-                      <td className="py-3.5 px-4 align-top">
-                        <select
-                          value={lead.status}
-                          onChange={(e) => onUpdateStatus(lead.id, e.target.value as LeadStatus)}
-                          className={`text-xs font-semibold px-2.5 py-1 rounded-md border cursor-pointer focus:outline-hidden ${statusColorClass(
-                            lead.status
-                          )}`}
-                        >
-                          <option value="new">New Inquiry</option>
-                          <option value="contacted">Contacted</option>
-                          <option value="quote_sent">Quote Sent</option>
-                          <option value="followup_due">Follow-Up Due</option>
-                          <option value="won">Won</option>
-                          <option value="lost">Lost</option>
-                        </select>
-                      </td>
+                      <td className="py-3.5 px-4 align-top">{statusSelect(lead)}</td>
 
                       {/* Next Follow-Up */}
                       <td className="py-3.5 px-4 align-top">
@@ -354,61 +488,17 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                             {formatDate(lead.nextFollowUpDate)}
                           </span>
                         </div>
-                        {overdue && lead.status !== 'won' && lead.status !== 'lost' && (
-                          <span className="text-[11px] font-semibold text-rose-600 block mt-0.5">
-                            Overdue
-                          </span>
+                        {overdue && (
+                          <span className="text-[11px] font-semibold text-rose-600 block mt-0.5">Overdue</span>
                         )}
-                        {dueToday && lead.status !== 'won' && lead.status !== 'lost' && (
-                          <span className="text-[11px] font-semibold text-amber-600 block mt-0.5">
-                            Due Today
-                          </span>
+                        {dueToday && (
+                          <span className="text-[11px] font-semibold text-amber-600 block mt-0.5">Due Today</span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 align-top text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {/* Follow up button */}
-                          <button
-                            onClick={() => onStartFollowUp(lead)}
-                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                            title="Generate follow-up message"
-                            aria-label={`Follow up with ${lead.contactName}`}
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                          </button>
-
-                          {/* Quote button */}
-                          <button
-                            onClick={() => onCreateQuoteForLead(lead)}
-                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                            title="Create quote for this lead"
-                            aria-label={`Create quote for ${lead.contactName}`}
-                          >
-                            <FileCheck className="w-4 h-4" />
-                          </button>
-
-                          {/* Edit */}
-                          <button
-                            onClick={() => onOpenEdit(lead)}
-                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                            title="Edit lead details"
-                            aria-label={`Edit ${lead.contactName}`}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => onDeleteLead(lead)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                            title="Delete lead"
-                            aria-label={`Delete ${lead.contactName}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="flex justify-end">{actionButtons(lead, 'sm')}</div>
                       </td>
                     </tr>
                   );

@@ -1,15 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import {
-  BarChart3,
-  TrendingUp,
-  PieChart,
-  Calendar,
-  DollarSign,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowUpRight,
-} from 'lucide-react';
-import { Lead, Quote, BusinessProfile, LeadStatus, ServiceType, LeadSource } from '../types';
+import { Lead, Quote, BusinessProfile, LeadStatus } from '../types';
 import { formatCurrency, safeDiv, isOverdue } from '../utils/formatters';
 
 interface ReportsViewProps {
@@ -53,8 +43,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   // Conversion rate of closed deals (won / closed * 100), safe against division by zero
   const closedConversionRate = safeDiv(wonCount, closedCount);
-  // Overall conversion rate (won / total * 100)
-  const overallConversionRate = safeDiv(wonCount, totalLeadsCount);
 
   // Financial Metrics
   const activePipelineValue = filteredLeads
@@ -128,7 +116,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </div>
 
         {/* Date Filter Tabs */}
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-200/70 rounded-lg text-xs font-semibold self-start">
           <button
             onClick={() => setDateRange('all')}
             className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
@@ -158,6 +146,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             }`}
           >
             Last 90 Days
+          </button>
+          <button
+            onClick={() => setDateRange('year')}
+            className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+              dateRange === 'year'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Last 12 Months
           </button>
         </div>
       </div>

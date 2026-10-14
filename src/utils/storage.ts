@@ -1,7 +1,10 @@
-import { AppDataPayload, BusinessProfile, Lead, Quote } from '../types';
-import { DEFAULT_BUSINESS_PROFILE, getInitialDemoData } from './demoData';
+import { AppDataPayload, BusinessProfile, Lead, LeadSource, LeadStatus, Quote, ServiceType } from '../types';
+import { LEAD_SOURCES, SERVICE_TYPES } from '../types';
+import { BLANK_BUSINESS_PROFILE, getBlankData, getInitialDemoData } from './demoData';
+import { addDaysISO, round2, toLocalISODate } from './formatters';
 
 const STORAGE_KEY = 'leadcatch_app_data_v1';
+const LEAD_STATUSES: LeadStatus[] = ['new', 'contacted', 'quote_sent', 'followup_due', 'won', 'lost'];
 
 export function loadAppData(): AppDataPayload {
   try {
@@ -13,8 +16,7 @@ export function loadAppData(): AppDataPayload {
     }
 
     const parsed = JSON.parse(raw);
-    const validated = sanitizePayload(parsed);
-    return validated;
+    return sanitizePayload(parsed);
   } catch (error) {
     console.error('LeadCatch storage load error, resetting to fallback safe state:', error);
     const fallback = getInitialDemoData();
@@ -37,72 +39,126 @@ export function saveAppData(data: AppDataPayload): boolean {
   }
 }
 
+function str(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function num(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number(value);
+  return isFinite(n) ? n : undefined;
+}
+
 export function sanitizePayload(raw: any): AppDataPayload {
+  const rp = raw?.profile;
   const profile: BusinessProfile = {
-    businessName: typeof raw?.profile?.businessName === 'string' ? raw.profile.businessName : DEFAULT_BUSINESS_PROFILE.businessName,
-    ownerName: typeof raw?.profile?.ownerName === 'string' ? raw.profile.ownerName : DEFAULT_BUSINESS_PROFILE.ownerName,
-    email: typeof raw?.profile?.email === 'string' ? raw.profile.email : DEFAULT_BUSINESS_PROFILE.email,
-    phone: typeof raw?.profile?.phone === 'string' ? raw.profile.phone : DEFAULT_BUSINESS_PROFILE.phone,
-    address: typeof raw?.profile?.address === 'string' ? raw.profile.address : DEFAULT_BUSINESS_PROFILE.address,
-    currency: typeof raw?.profile?.currency === 'string' ? raw.profile.currency : DEFAULT_BUSINESS_PROFILE.currency,
-    currencySymbol: typeof raw?.profile?.currencySymbol === 'string' ? raw.profile.currencySymbol : DEFAULT_BUSINESS_PROFILE.currencySymbol,
-    defaultTaxRate: typeof raw?.profile?.defaultTaxRate === 'number' ? Math.max(0, raw.profile.defaultTaxRate) : DEFAULT_BUSINESS_PROFILE.defaultTaxRate,
-    quoteTerms: typeof raw?.profile?.quoteTerms === 'string' ? raw.profile.quoteTerms : DEFAULT_BUSINESS_PROFILE.quoteTerms,
+    businessName: str(rp?.businessName, BLANK_BUSINESS_PROFILE.businessName),
+    ownerName: str(rp?.ownerName, BLANK_BUSINESS_PROFILE.ownerName),
+    email: str(rp?.email, BLANK_BUSINESS_PROFILE.email),
+    phone: str(rp?.phone, BLANK_BUSINESS_PROFILE.phone),
+    address: str(rp?.address, BLANK_BUSINESS_PROFILE.address),
+    currency: str(rp?.currency, BLANK_BUSINESS_PROFILE.currency),
+    currencySymbol: str(rp?.currencySymbol, BLANK_BUSINESS_PROFILE.currencySymbol),
+    defaultTaxRate:
+      typeof rp?.defaultTaxRate === 'number' && isFinite(rp.defaultTaxRate)
+        ? Math.max(0, rp.defaultTaxRate)
+        : BLANK_BUSINESS_PROFILE.defaultTaxRate,
+    quoteTerms: str(rp?.quoteTerms, BLANK_BUSINESS_PROFILE.quoteTerms),
+    // Backups made before these settings existed fall back to the Moroccan defaults.
+    defaultCountryCode:
+      typeof rp?.defaultCountryCode === 'string' && rp.defaultCountryCode.replace(/\D/g, '')
+        ? rp.defaultCountryCode.replace(/\D/g, '')
+        : BLANK_BUSINESS_PROFILE.defaultCountryCode,
+    messageLanguage: ['en', 'fr', 'darija'].includes(rp?.messageLanguage)
+      ? rp.messageLanguage
+      : BLANK_BUSINESS_PROFILE.messageLanguage,
   };
+
+  const today = toLocalISODate();
 
   const leads: Lead[] = Array.isArray(raw?.leads)
     ? raw.leads
         .filter((l: any) => l && typeof l === 'object' && typeof l.contactName === 'string')
-        .map((l: any, idx: number) => ({
-          id: typeof l.id === 'string' ? l.id : `lead-${Date.now()}-${idx}`,
-          contactName: String(l.contactName || 'Unnamed Contact').trim(),
-          businessOrProperty: String(l.businessOrProperty || '').trim(),
-          phone: String(l.phone || '').trim(),
-          email: String(l.email || '').trim(),
-          serviceType: l.serviceType || 'Other',
-          leadSource: l.leadSource || 'Other',
-          estimatedValue: Number(l.estimatedValue) >= 0 ? Number(l.estimatedValue) : 0,
-          actualWonRevenue: Number(l.actualWonRevenue) >= 0 ? Number(l.actualWonRevenue) : undefined,
-          status: ['new', 'contacted', 'quote_sent', 'followup_due', 'won', 'lost'].includes(l.status)
-            ? l.status
-            : 'new',
-          createdAt: typeof l.createdAt === 'string' ? l.createdAt : new Date().toISOString(),
-          nextFollowUpDate: typeof l.nextFollowUpDate === 'string' ? l.nextFollowUpDate : new Date().toISOString().split('T')[0],
-          notes: String(l.notes || ''),
-          quoteId: typeof l.quoteId === 'string' ? l.quoteId : undefined,
-        }))
+        .map((l: any, idx: number) => {
+          const estimated = num(l.estimatedValue);
+          const won = num(l.actualWonRevenue);
+          return {
+            id: typeof l.id === 'string' ? l.id : `lead-${Date.now()}-${idx}`,
+            contactName: String(l.contactName || 'Unnamed Contact').trim(),
+            businessOrProperty: String(l.businessOrProperty || '').trim(),
+            phone: String(l.phone || '').trim(),
+            email: String(l.email || '').trim(),
+            serviceType: (SERVICE_TYPES as readonly string[]).includes(l.serviceType)
+              ? (l.serviceType as ServiceType)
+              : 'Other',
+            leadSource: (LEAD_SOURCES as readonly string[]).includes(l.leadSource)
+              ? (l.leadSource as LeadSource)
+              : 'Other',
+            estimatedValue: estimated !== undefined && estimated >= 0 ? estimated : 0,
+            actualWonRevenue: won !== undefined && won >= 0 ? won : undefined,
+            status: LEAD_STATUSES.includes(l.status) ? l.status : 'new',
+            createdAt: typeof l.createdAt === 'string' ? l.createdAt : new Date().toISOString(),
+            nextFollowUpDate: typeof l.nextFollowUpDate === 'string' ? l.nextFollowUpDate : today,
+            notes: String(l.notes || ''),
+            quoteId: typeof l.quoteId === 'string' ? l.quoteId : undefined,
+          };
+        })
     : [];
 
   const quotes: Quote[] = Array.isArray(raw?.quotes)
     ? raw.quotes
         .filter((q: any) => q && typeof q === 'object' && typeof q.quoteNumber === 'string')
-        .map((q: any, idx: number) => ({
-          id: typeof q.id === 'string' ? q.id : `quote-${Date.now()}-${idx}`,
-          quoteNumber: String(q.quoteNumber || `LC-2026-${String(idx + 1).padStart(3, '0')}`),
-          leadId: typeof q.leadId === 'string' ? q.leadId : undefined,
-          customerName: String(q.customerName || '').trim(),
-          customerEmail: String(q.customerEmail || '').trim(),
-          customerPhone: String(q.customerPhone || '').trim(),
-          customerAddress: String(q.customerAddress || '').trim(),
-          issueDate: typeof q.issueDate === 'string' ? q.issueDate : new Date().toISOString().split('T')[0],
-          validUntilDate: typeof q.validUntilDate === 'string' ? q.validUntilDate : new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-          items: Array.isArray(q.items)
-            ? q.items.map((item: any, itemIdx: number) => ({
-                id: typeof item.id === 'string' ? item.id : `item-${itemIdx}`,
-                description: String(item.description || 'Service item'),
-                quantity: Math.max(1, Number(item.quantity) || 1),
-                unitPrice: Math.max(0, Number(item.unitPrice) || 0),
-                total: Math.max(0, (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0)),
-              }))
-            : [],
-          subtotal: Number(q.subtotal) >= 0 ? Number(q.subtotal) : 0,
-          discountPercent: Math.max(0, Math.min(100, Number(q.discountPercent) || 0)),
-          taxPercent: Math.max(0, Number(q.taxPercent) || 0),
-          total: Number(q.total) >= 0 ? Number(q.total) : 0,
-          status: ['draft', 'sent', 'accepted', 'declined'].includes(q.status) ? q.status : 'draft',
-          notes: String(q.notes || ''),
-          createdAt: typeof q.createdAt === 'string' ? q.createdAt : new Date().toISOString(),
-        }))
+        .map((q: any, idx: number) => {
+          const items = Array.isArray(q.items)
+            ? q.items
+                .filter((item: any) => item && typeof item === 'object')
+                .map((item: any, itemIdx: number) => {
+                  const quantity = num(item.quantity);
+                  const unitPrice = num(item.unitPrice);
+                  const qty = quantity !== undefined && quantity > 0 ? quantity : 1;
+                  const price = unitPrice !== undefined && unitPrice >= 0 ? unitPrice : 0;
+                  return {
+                    id: typeof item.id === 'string' ? item.id : `item-${itemIdx}`,
+                    description: String(item.description || 'Service item'),
+                    quantity: qty,
+                    unitPrice: price,
+                    total: round2(qty * price),
+                  };
+                })
+            : [];
+
+          const discountPercent = Math.max(0, Math.min(100, Number(q.discountPercent) || 0));
+          const taxPercent = Math.max(0, Number(q.taxPercent) || 0);
+
+          // With line items present, totals are always derived from them so the document can never disagree with itself.
+          let subtotal = num(q.subtotal) !== undefined && Number(q.subtotal) >= 0 ? Number(q.subtotal) : 0;
+          let total = num(q.total) !== undefined && Number(q.total) >= 0 ? Number(q.total) : 0;
+          if (items.length > 0) {
+            subtotal = round2(items.reduce((acc: number, i: { total: number }) => acc + i.total, 0));
+            const base = Math.max(0, subtotal - (subtotal * discountPercent) / 100);
+            total = round2(base + (base * taxPercent) / 100);
+          }
+
+          return {
+            id: typeof q.id === 'string' ? q.id : `quote-${Date.now()}-${idx}`,
+            quoteNumber: String(q.quoteNumber || `LC-${new Date().getFullYear()}-${String(idx + 1).padStart(3, '0')}`),
+            leadId: typeof q.leadId === 'string' ? q.leadId : undefined,
+            customerName: String(q.customerName || '').trim(),
+            customerEmail: String(q.customerEmail || '').trim(),
+            customerPhone: String(q.customerPhone || '').trim(),
+            customerAddress: String(q.customerAddress || '').trim(),
+            issueDate: typeof q.issueDate === 'string' ? q.issueDate : today,
+            validUntilDate: typeof q.validUntilDate === 'string' ? q.validUntilDate : addDaysISO(30),
+            items,
+            subtotal,
+            discountPercent,
+            taxPercent,
+            total,
+            status: ['draft', 'sent', 'accepted', 'declined'].includes(q.status) ? q.status : 'draft',
+            notes: String(q.notes || ''),
+            createdAt: typeof q.createdAt === 'string' ? q.createdAt : new Date().toISOString(),
+          };
+        })
     : [];
 
   return {
@@ -111,6 +167,9 @@ export function sanitizePayload(raw: any): AppDataPayload {
     profile,
     leads,
     quotes,
+    // Visitors of the first release have the old US sample set stored without the flag.
+    isDemo:
+      raw?.isDemo === true || (raw?.isDemo === undefined && rp?.businessName === 'Summit Craft Home Services'),
   };
 }
 
@@ -125,7 +184,8 @@ export function validateImportPayload(jsonStr: string): { valid: boolean; error?
       return { valid: false, error: 'Invalid backup file structure: missing leads or quotes collection.' };
     }
 
-    const sanitized = sanitizePayload(parsed);
+    // A backup restored by the user is real data, never "sample" data.
+    const sanitized = { ...sanitizePayload(parsed), isDemo: false };
     return { valid: true, data: sanitized };
   } catch (err: any) {
     return { valid: false, error: `JSON Parse error: ${err?.message || 'Malformed JSON file'}` };
@@ -141,13 +201,13 @@ export function exportAppDataAsFile(data: AppDataPayload): void {
   const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
-  const dateStr = new Date().toISOString().split('T')[0];
   anchor.href = url;
-  anchor.download = `leadcatch-backup-${dateStr}.json`;
+  anchor.download = `leadcatch-backup-${toLocalISODate()}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  // Give the browser a moment to start the download before releasing the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function resetToDemoData(): AppDataPayload {
@@ -156,14 +216,9 @@ export function resetToDemoData(): AppDataPayload {
   return demo;
 }
 
+/** Wipes every record and the business profile. */
 export function clearAllStorage(): AppDataPayload {
-  const blank: AppDataPayload = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    profile: DEFAULT_BUSINESS_PROFILE,
-    leads: [],
-    quotes: [],
-  };
+  const blank = getBlankData();
   saveAppData(blank);
   return blank;
 }

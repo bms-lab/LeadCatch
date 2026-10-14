@@ -10,6 +10,10 @@
   }
 }
 
+@page {
+  margin: 12mm;
+}
+
 @media print {
   /* Hide interactive chrome and sidebars when printing quotes */
   .no-print,

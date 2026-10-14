@@ -5,16 +5,19 @@ import {
   Check,
   Send,
   Mail,
-  Calendar,
-  User,
   Info,
-  Clock,
-  ArrowRight,
   ExternalLink,
 } from 'lucide-react';
-import { Lead, Quote, BusinessProfile, FollowUpTemplateKey } from '../types';
-import { DEFAULT_TEMPLATES, renderTemplate } from '../utils/templates';
-import { getWhatsAppUrl, getMailtoUrl, formatDate, isOverdue, formatCurrency } from '../utils/formatters';
+import { Lead, Quote, BusinessProfile, FollowUpTemplateKey, MessageLanguage, MESSAGE_LANGUAGES } from '../types';
+import { TEMPLATE_KEYS, TEMPLATE_META, getTemplate, renderTemplate } from '../utils/templates';
+import {
+  getWhatsAppUrl,
+  getMailtoUrl,
+  formatDate,
+  isOverdue,
+  formatCurrency,
+  addDaysISO,
+} from '../utils/formatters';
 
 interface FollowUpAssistantViewProps {
   leads: Lead[];
@@ -43,16 +46,25 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
   });
 
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<FollowUpTemplateKey>('friendly_reminder');
+  const [language, setLanguage] = useState<MessageLanguage>(profile.messageLanguage || 'fr');
   const [editedSubject, setEditedSubject] = useState('');
   const [editedBody, setEditedBody] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Sync when initialLeadId prop changes
+  // Sync when initialLeadId prop changes (and only then, so a manual choice is never overridden)
   useEffect(() => {
     if (initialLeadId && leads.some((l) => l.id === initialLeadId)) {
       setSelectedLeadId(initialLeadId);
     }
-  }, [initialLeadId, leads]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLeadId]);
+
+  // If the selected prospect was deleted elsewhere, fall back to the first one.
+  useEffect(() => {
+    if (leads.length > 0 && !leads.some((l) => l.id === selectedLeadId)) {
+      setSelectedLeadId(leads.find((l) => l.status !== 'won' && l.status !== 'lost')?.id || leads[0].id);
+    }
+  }, [leads, selectedLeadId]);
 
   const activeLead = useMemo(() => {
     return leads.find((l) => l.id === selectedLeadId) || null;
@@ -86,12 +98,13 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
       return;
     }
 
-    const template = DEFAULT_TEMPLATES[selectedTemplateKey];
-    const rendered = renderTemplate(template, activeLead, profile, linkedQuote);
+    const template = getTemplate(selectedTemplateKey, language);
+    const rendered = renderTemplate(template, activeLead, profile, linkedQuote, language);
     setEditedSubject(rendered.subject);
     setEditedBody(rendered.body);
     setCopied(false);
-  }, [selectedTemplateKey, activeLead, profile, linkedQuote]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplateKey, language, activeLead?.id, linkedQuote?.id]);
 
   const handleCopy = async () => {
     if (!editedBody) return;
@@ -105,12 +118,14 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
     }
   };
 
-  const whatsAppUrl = activeLead?.phone ? getWhatsAppUrl(activeLead.phone, editedBody) : null;
+  const whatsAppUrl = activeLead?.phone
+    ? getWhatsAppUrl(activeLead.phone, editedBody, profile.defaultCountryCode)
+    : null;
   const mailtoUrl = activeLead?.email ? getMailtoUrl(activeLead.email, editedSubject, editedBody) : null;
 
   const handlePostpone = (days: number) => {
     if (!activeLead) return;
-    const nextDate = new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
+    const nextDate = addDaysISO(days);
     onUpdateLeadFollowUp(activeLead.id, nextDate);
     onShowToast(
       'Follow-up rescheduled',
@@ -121,7 +136,7 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
 
   const handleMarkContacted = () => {
     if (!activeLead) return;
-    const nextDate = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
+    const nextDate = addDaysISO(3);
     onUpdateLeadFollowUp(activeLead.id, nextDate, 'contacted');
     onShowToast(
       'Status updated',
@@ -156,9 +171,10 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
       <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
         <Info className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" />
         <div className="text-xs text-slate-700 leading-relaxed">
-          <p className="font-semibold text-slate-900 mb-0.5">Manual Delivery Notice (Zero-Spam MVP)</p>
-          LeadCatch empowers you with instant personalized templates, but{' '}
-          <strong>never sends automated emails or messages behind your back</strong>. You retain full review and control by clicking WhatsApp, Email, or copying the text.
+          <p className="font-semibold text-slate-900 mb-0.5">You stay in control of every message</p>
+          LeadCatch prepares a personalised message for you, but{' '}
+          <strong>never sends anything by itself</strong>. Read it, change it if you like, then send it yourself with
+          WhatsApp, email, or by copying the text.
         </div>
       </div>
 
@@ -234,8 +250,8 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
               2. Choose Message Scenario
             </label>
             <div className="space-y-1.5">
-              {(Object.keys(DEFAULT_TEMPLATES) as FollowUpTemplateKey[]).map((key) => {
-                const tpl = DEFAULT_TEMPLATES[key];
+              {TEMPLATE_KEYS.map((key) => {
+                const tpl = TEMPLATE_META[key];
                 const isSelected = selectedTemplateKey === key;
                 return (
                   <button
@@ -272,10 +288,23 @@ export const FollowUpAssistantView: React.FC<FollowUpAssistantViewProps> = ({
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 3. Preview & Personalize Message
               </span>
-              <span className="text-[11px] text-slate-400">
-                You can freely edit the text below
-              </span>
+              <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-[11px] font-semibold" role="group" aria-label="Message language">
+                {MESSAGE_LANGUAGES.map((l) => (
+                  <button
+                    key={l.value}
+                    type="button"
+                    onClick={() => setLanguage(l.value)}
+                    aria-pressed={language === l.value}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      language === l.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            <p className="text-[11px] text-slate-400 -mt-2">You can freely edit the text below before sending.</p>
 
             {/* Subject Line for Email */}
             <div>

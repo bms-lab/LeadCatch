@@ -2,27 +2,21 @@ import React, { useMemo } from 'react';
 import {
   Users,
   FileCheck,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
-  XCircle,
   AlertTriangle,
   ArrowRight,
   Plus,
-  Send,
   MessageSquare,
   Sparkles,
-  Download,
-  Archive,
 } from 'lucide-react';
 import { Lead, Quote, BusinessProfile } from '../types';
 import { formatCurrency, formatDate, isOverdue, isDueToday } from '../utils/formatters';
-import { triggerZipDownload } from '../utils/downloadHelper';
 
 interface DashboardViewProps {
   leads: Lead[];
   quotes: Quote[];
   profile: BusinessProfile;
+  isDemo?: boolean;
+  onStartFresh?: () => void;
   onNavigateToLeads: () => void;
   onNavigateToQuotes: () => void;
   onNavigateToFollowUps: (leadId?: string) => void;
@@ -34,6 +28,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   leads,
   quotes,
   profile,
+  isDemo = false,
+  onStartFresh,
   onNavigateToLeads,
   onNavigateToQuotes,
   onNavigateToFollowUps,
@@ -45,7 +41,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const newLeads = leads.filter((l) => l.status === 'new').length;
   const quotesAwaitingResponse = quotes.filter((q) => q.status === 'sent').length;
   const wonOpportunities = leads.filter((l) => l.status === 'won').length;
-  const lostOpportunities = leads.filter((l) => l.status === 'lost').length;
 
   // Revenue distinctions:
   // Estimated Pipeline Value = sum of estimated values of all active leads (not won and not lost)
@@ -70,6 +65,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .slice(0, 6);
   }, [leads]);
 
+  const recentLeads = useMemo(
+    () => [...leads].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6),
+    [leads]
+  );
+
   const overdueCount = leads.filter(
     (l) => l.status !== 'won' && l.status !== 'lost' && isOverdue(l.nextFollowUpDate)
   ).length;
@@ -80,27 +80,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Welcome back, {profile.ownerName || 'Craftsperson'}
+            {profile.ownerName ? `Welcome back, ${profile.ownerName}` : 'Welcome to LeadCatch'}
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Overview of your current pipeline for <strong className="text-slate-800">{profile.businessName}</strong>.
+            {profile.businessName ? (
+              <>
+                Overview of your current pipeline for{' '}
+                <strong className="text-slate-800">{profile.businessName}</strong>.
+              </>
+            ) : (
+              'Overview of your current pipeline.'
+            )}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <a
-            href="/leadcatch-project.zip"
-            download="leadcatch-project.zip"
-            onClick={(e) => {
-              e.preventDefault();
-              triggerZipDownload();
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-800 bg-slate-100 border border-slate-300 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
-            title="Download full project source code as ZIP"
-          >
-            <Download className="w-4 h-4 text-slate-700" />
-            <span>Download .ZIP</span>
-          </a>
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <button
             onClick={onOpenCreateLead}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
@@ -118,41 +112,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Direct Project ZIP Download Banner */}
-      <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
-          <div className="p-2.5 rounded-lg bg-slate-800 text-[#B7F34A] shrink-0">
-            <Archive className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white">
-                Download Complete Project ZIP (GitHub & Vercel Ready)
-              </h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-[#B7F34A] font-semibold">
-                95 KB
-              </span>
+      {/* Sample-data banner: shown only while the built-in demo records are loaded */}
+      {isDemo && (
+        <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-lg bg-slate-800 text-[#B7F34A] shrink-0">
+              <Sparkles className="w-6 h-6" />
             </div>
-            <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Contains all React 19 components, vector logo SVGs, Tailwind styles, config files, <code className="text-[#B7F34A]">vercel.json</code>, <code className="text-[#B7F34A]">.gitignore</code>, <code className="text-[#B7F34A]">.env.example</code>, and <code className="text-[#B7F34A]">README.md</code>. Ready to unzip, push to GitHub, and deploy.
-            </p>
+            <div>
+              <h2 className="text-sm font-bold text-white">You are looking at sample data</h2>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                Explore the dashboard, quotes and follow-up messages with these example records. When you are ready,
+                remove them and enter your own business — your data stays on this device.
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <button
+              type="button"
+              onClick={onStartFresh}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-950 bg-[#B7F34A] hover:bg-[#a6e63a] rounded-lg transition-colors cursor-pointer shadow-sm"
+            >
+              <span>Start with my own data</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
-          <a
-            href="/leadcatch-project.zip"
-            download="leadcatch-project.zip"
-            onClick={(e) => {
-              e.preventDefault();
-              triggerZipDownload();
-            }}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-950 bg-[#B7F34A] hover:bg-[#a6e63a] rounded-lg transition-colors cursor-pointer shadow-sm"
-          >
-            <Download className="w-4 h-4 text-slate-950" />
-            <span>Download Project ZIP</span>
-          </a>
-        </div>
-      </div>
+      )}
 
       {/* Overdue Alert Bar if any */}
       {overdueCount > 0 && (
@@ -166,7 +152,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 You have {overdueCount} overdue {overdueCount === 1 ? 'follow-up' : 'follow-ups'}
               </p>
               <p className="text-xs text-amber-800 mt-0.5">
-                Prospective clients convert 60% faster when checked on within 48 hours.
+                A quick reply keeps the conversation warm — start with the oldest one.
               </p>
             </div>
           </div>
@@ -368,7 +354,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="divide-y divide-slate-100">
-            {leads.slice(0, 6).map((lead) => (
+            {recentLeads.map((lead) => (
               <div
                 key={lead.id}
                 className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"

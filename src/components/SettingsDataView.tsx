@@ -1,27 +1,15 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Building2,
   Download,
   Upload,
   RotateCcw,
   Trash2,
-  CheckCircle2,
-  AlertTriangle,
   ShieldAlert,
   Save,
-  DollarSign,
-  FileText,
-  Archive,
 } from 'lucide-react';
-import { BusinessProfile, AppDataPayload } from '../types';
-import { LeadCatchLogo, LeadCatchIcon } from './Logo';
-import {
-  exportAppDataAsFile,
-  validateImportPayload,
-  resetToDemoData,
-  clearAllStorage,
-} from '../utils/storage';
-import { triggerZipDownload } from '../utils/downloadHelper';
+import { BusinessProfile, AppDataPayload, MessageLanguage, MESSAGE_LANGUAGES } from '../types';
+import { exportAppDataAsFile, validateImportPayload } from '../utils/storage';
 
 interface SettingsDataViewProps {
   profile: BusinessProfile;
@@ -41,9 +29,13 @@ interface SettingsDataViewProps {
 }
 
 const CURRENCIES = [
-  { code: 'USD', symbol: '$', label: 'US Dollar ($)' },
+  { code: 'MAD', symbol: 'DH', label: 'Moroccan Dirham (DH)' },
   { code: 'EUR', symbol: '€', label: 'Euro (€)' },
+  { code: 'USD', symbol: '$', label: 'US Dollar ($)' },
   { code: 'GBP', symbol: '£', label: 'British Pound (£)' },
+  { code: 'DZD', symbol: 'DA', label: 'Algerian Dinar (DA)' },
+  { code: 'TND', symbol: 'DT', label: 'Tunisian Dinar (DT)' },
+  { code: 'XOF', symbol: 'FCFA', label: 'CFA Franc (FCFA)' },
   { code: 'CAD', symbol: '$', label: 'Canadian Dollar (CAD $)' },
   { code: 'AUD', symbol: '$', label: 'Australian Dollar (AUD $)' },
 ];
@@ -63,6 +55,10 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
   const [importStats, setImportStats] = useState<{ leads: number; quotes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    setFormData({ ...profile });
+  }, [profile]);
+
   const handleProfileFieldChange = (field: keyof BusinessProfile, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -78,7 +74,10 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateProfile(formData);
+    onUpdateProfile({
+      ...formData,
+      defaultCountryCode: formData.defaultCountryCode.replace(/\D/g, '') || '212',
+    });
     onShowToast('Settings saved', 'Business details and quote defaults have been updated.', 'success');
   };
 
@@ -153,12 +152,12 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
     onRequestConfirm({
       title: 'Restore Realistic Demo Records?',
       message:
-        'This will populate your database with sample home-service leads (cleaning, painting, plumbing, garden care) and itemized quotes for testing.',
+        'This replaces your current records with the sample leads, quotes and business details so you can test the app. Export a backup first if you have real data.',
       confirmLabel: 'Restore Demo Data',
       isDestructive: false,
       onConfirm: () => {
         onRestoreDemo();
-        onShowToast('Demo data restored', 'Loaded 7 home-service leads and 3 itemized quotes.', 'success');
+        onShowToast('Demo data restored', 'Loaded 7 sample leads and 3 sample quotes.', 'success');
       },
     });
   };
@@ -193,13 +192,11 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
       <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
         <ShieldAlert className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" />
         <div className="text-xs text-slate-700 leading-relaxed">
-          <p className="font-semibold text-slate-900 mb-0.5">
-            Zero-Cost Browser Storage Architecture ($0 Budget MVP)
-          </p>
-          LeadCatch stores all your records inside your browser’s secure{' '}
-          <code>localStorage</code>. Data does <strong>not</strong> synchronize across separate devices automatically. 
-          Clearing browser cache or cookies can erase local records, so we strongly recommend using the{' '}
-          <strong>Export Backup (JSON)</strong> feature below to maintain periodic backups of your customer files.
+          <p className="font-semibold text-slate-900 mb-0.5">Your data stays on this device</p>
+          LeadCatch keeps your records in this browser only — nothing is uploaded to a server and it does{' '}
+          <strong>not</strong> sync between phone and computer automatically. Clearing the browser’s data can erase
+          your records, so use <strong>Export Data (JSON)</strong> below to save a backup regularly (for example
+          every Friday) and keep the file somewhere safe, like WhatsApp “saved messages” or your email.
         </div>
       </div>
 
@@ -227,7 +224,7 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
                   type="text"
                   value={formData.businessName}
                   onChange={(e) => handleProfileFieldChange('businessName', e.target.value)}
-                  placeholder="e.g. Summit Craft Home Services"
+                  placeholder="e.g. Atlas Services Maison"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -240,7 +237,7 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
                   type="text"
                   value={formData.ownerName}
                   onChange={(e) => handleProfileFieldChange('ownerName', e.target.value)}
-                  placeholder="e.g. Marcus Vance"
+                  placeholder="e.g. Youssef El Amrani"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -253,7 +250,7 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => handleProfileFieldChange('phone', e.target.value)}
-                  placeholder="e.g. +1 (555) 234-8901"
+                  placeholder="e.g. 0661 23 45 67"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -280,7 +277,7 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
                 type="text"
                 value={formData.address}
                 onChange={(e) => handleProfileFieldChange('address', e.target.value)}
-                placeholder="e.g. 1420 Heritage Way, Denver, CO 80202"
+                placeholder="e.g. 12 Rue des Orangers, Maârif, Casablanca"
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900"
               />
             </div>
@@ -320,6 +317,50 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Message & Quote Language
+                </label>
+                <select
+                  value={formData.messageLanguage}
+                  onChange={(e) => handleProfileFieldChange('messageLanguage', e.target.value as MessageLanguage)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 bg-white"
+                >
+                  {MESSAGE_LANGUAGES.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Language of follow-up messages and the printed quote.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Phone Country Code (WhatsApp)
+                </label>
+                <div className="flex items-center">
+                  <span className="px-3 py-2 text-sm border border-r-0 border-slate-300 rounded-l-lg bg-slate-50 text-slate-500">
+                    +
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formData.defaultCountryCode}
+                    onChange={(e) => handleProfileFieldChange('defaultCountryCode', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="212"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-r-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 font-mono"
+                  />
+                </div>
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Turns 06 12 34 56 78 into a valid WhatsApp number (212 = Morocco).
+                </span>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Default Quote Terms & Warranty Notes
@@ -355,30 +396,6 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
             </p>
 
             <div className="space-y-3 pt-1">
-              {/* Project Source ZIP Download */}
-              <a
-                href="/leadcatch-project.zip"
-                download="leadcatch-project.zip"
-                onClick={(e) => {
-                  e.preventDefault();
-                  triggerZipDownload();
-                }}
-                className="w-full flex items-center justify-between p-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer text-left group shadow-xs"
-              >
-                <div>
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Archive className="w-4 h-4 text-[#B7F34A]" />
-                    <span>Download Project ZIP (Ready for GitHub & Vercel)</span>
-                  </div>
-                  <span className="text-[11px] text-slate-300 block mt-0.5">
-                    Complete production-ready source code bundle (excludes node_modules)
-                  </span>
-                </div>
-                <span className="text-xs font-semibold text-[#B7F34A] shrink-0 ml-2">
-                  .ZIP (94 KB)
-                </span>
-              </a>
-
               {/* Export Button */}
               <button
                 type="button"
@@ -447,60 +464,6 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
             </div>
           </div>
 
-          {/* LeadCatch Official Brand & Logo Assets */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">Brand & Logo Assets</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Official high-resolution geometric marks and vector assets.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <LeadCatchLogo size="lg" />
-                <div className="flex items-center gap-2">
-                  <a
-                    href="/logo-icon.svg"
-                    download="leadcatch-icon.svg"
-                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                  >
-                    Icon (SVG)
-                  </a>
-                  <a
-                    href="/logo-horizontal.svg"
-                    download="leadcatch-logo.svg"
-                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                  >
-                    Logo (SVG)
-                  </a>
-                </div>
-              </div>
-
-              {/* Brand Palette Swatches */}
-              <div className="pt-2 border-t border-slate-200 grid grid-cols-4 gap-2 text-center text-[10px] font-mono">
-                <div className="p-1.5 rounded bg-slate-900 text-white">
-                  <div className="w-full h-3 rounded bg-[#111827] mb-1"></div>
-                  <span>#111827</span>
-                </div>
-                <div className="p-1.5 rounded bg-slate-100 text-slate-900 border border-slate-200">
-                  <div className="w-full h-3 rounded bg-[#B7F34A] mb-1 border border-slate-300"></div>
-                  <span>#B7F34A</span>
-                </div>
-                <div className="p-1.5 rounded bg-slate-100 text-slate-900 border border-slate-200">
-                  <div className="w-full h-3 rounded bg-white mb-1 border border-slate-300"></div>
-                  <span>#FFFFFF</span>
-                </div>
-                <div className="p-1.5 rounded bg-slate-100 text-slate-900 border border-slate-200">
-                  <div className="w-full h-3 rounded bg-[#64748B] mb-1"></div>
-                  <span>#64748B</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Demo Data & Danger Zone */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
             <h2 className="text-base font-bold text-slate-900">Maintenance & Reset</h2>
@@ -514,7 +477,7 @@ export const SettingsDataView: React.FC<SettingsDataViewProps> = ({
                     Restore Sample Records
                   </div>
                   <span className="text-[11px] text-slate-500 block mt-0.5">
-                    Reset to clean demo data (cleaning, painting, plumbing)
+                    Replace everything with example records
                   </span>
                 </div>
                 <button

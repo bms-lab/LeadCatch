@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Phone, Mail, MapPin, DollarSign, Calendar, FileText, Tag, Briefcase } from 'lucide-react';
-import { Lead, LeadStatus, ServiceType, LeadSource } from '../types';
+import {
+  Lead,
+  LeadStatus,
+  ServiceType,
+  LeadSource,
+  SERVICE_TYPES,
+  LEAD_SOURCES,
+  LEAD_STATUS_OPTIONS,
+} from '../types';
+import { addDaysISO, isValidEmail } from '../utils/formatters';
 
 interface LeadModalProps {
   isOpen: boolean;
@@ -10,35 +19,11 @@ interface LeadModalProps {
   onSave: (lead: Lead) => void;
 }
 
-const SERVICE_OPTIONS: ServiceType[] = [
-  'Cleaning',
-  'Painting',
-  'Plumbing',
-  'Garden Maintenance',
-  'Electrical',
-  'Handyman',
-  'Roofing',
-  'Other',
-];
-
-const SOURCE_OPTIONS: LeadSource[] = [
-  'Website',
-  'Referral',
-  'Google Search',
-  'Social Media',
-  'Flyer / Van',
-  'Repeat Customer',
-  'Other',
-];
-
-const STATUS_OPTIONS: { value: LeadStatus; label: string }[] = [
-  { value: 'new', label: 'New Inquiry' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'quote_sent', label: 'Quote Sent' },
-  { value: 'followup_due', label: 'Follow-Up Due' },
-  { value: 'won', label: 'Won / Confirmed' },
-  { value: 'lost', label: 'Lost / Closed' },
-];
+const SERVICE_OPTIONS: readonly ServiceType[] = SERVICE_TYPES;
+const SOURCE_OPTIONS: readonly LeadSource[] = LEAD_SOURCES;
+const STATUS_OPTIONS = LEAD_STATUS_OPTIONS.map((o) =>
+  o.value === 'won' ? { ...o, label: 'Won / Confirmed' } : o.value === 'lost' ? { ...o, label: 'Lost / Closed' } : o
+);
 
 export const LeadModal: React.FC<LeadModalProps> = ({
   isOpen,
@@ -52,7 +37,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [serviceType, setServiceType] = useState<ServiceType>('Cleaning');
-  const [leadSource, setLeadSource] = useState<LeadSource>('Website');
+  const [leadSource, setLeadSource] = useState<LeadSource>('WhatsApp');
   const [estimatedValue, setEstimatedValue] = useState<string>('0');
   const [actualWonRevenue, setActualWonRevenue] = useState<string>('');
   const [status, setStatus] = useState<LeadStatus>('new');
@@ -67,7 +52,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       setPhone(leadToEdit.phone || '');
       setEmail(leadToEdit.email || '');
       setServiceType(leadToEdit.serviceType || 'Cleaning');
-      setLeadSource(leadToEdit.leadSource || 'Website');
+      setLeadSource(leadToEdit.leadSource || 'WhatsApp');
       setEstimatedValue(leadToEdit.estimatedValue ? String(leadToEdit.estimatedValue) : '0');
       setActualWonRevenue(
         leadToEdit.actualWonRevenue !== undefined ? String(leadToEdit.actualWonRevenue) : ''
@@ -82,17 +67,25 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       setPhone('');
       setEmail('');
       setServiceType('Cleaning');
-      setLeadSource('Website');
+      setLeadSource('WhatsApp');
       setEstimatedValue('0');
       setActualWonRevenue('');
       setStatus('new');
       // Set default follow-up to tomorrow
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-      setNextFollowUpDate(tomorrow);
+      setNextFollowUpDate(addDaysISO(1));
       setNotes('');
     }
     setErrors({});
   }, [leadToEdit, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -107,7 +100,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       newErrors.contactInfo = 'Please provide at least a phone number or email address.';
     }
 
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (email.trim() && !isValidEmail(email)) {
       newErrors.email = 'Please provide a valid email address.';
     }
 
@@ -181,7 +174,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-5">
           {errors.contactInfo && (
             <div className="p-3 text-xs font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded-lg">
               {errors.contactInfo}
@@ -199,7 +192,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 type="text"
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
-                placeholder="e.g. Sarah Jenkins"
+                placeholder="e.g. Salma Bennani"
                 className={`w-full px-3 py-2 text-sm rounded-lg border focus:outline-hidden focus:ring-2 ${
                   errors.contactName
                     ? 'border-rose-300 focus:ring-rose-500 bg-rose-50/30'
@@ -221,7 +214,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 type="text"
                 value={businessOrProperty}
                 onChange={(e) => setBusinessOrProperty(e.target.value)}
-                placeholder="e.g. 442 Oak Valley Dr or Miller Bakery"
+                placeholder="e.g. Villa Les Palmiers, Casablanca"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900 bg-white"
               />
             </div>
@@ -236,7 +229,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. +1 555-849-2104"
+                placeholder="e.g. 0661 23 45 67"
                 className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900 bg-white"
               />
             </div>
@@ -251,7 +244,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. sarah@example.com"
+                placeholder="e.g. salma@example.com"
                 className={`w-full px-3 py-2 text-sm rounded-lg border focus:outline-hidden focus:ring-2 ${
                   errors.email
                     ? 'border-rose-300 focus:ring-rose-500 bg-rose-50/30'
