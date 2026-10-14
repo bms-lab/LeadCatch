@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "LeadCatch",
+  "version": "1.0.0",
+  "description": "Production-ready lead tracking, quote builder, and follow-up assistant for independent home-service businesses (cleaning, painting, plumbing, garden maintenance, handymen).",
+  "license": "Apache-2.0",
+  "author": "LeadCatch Engineering Team",
+  "targetAudience": "Independent contractors, home service operators, cleaning businesses, painters, plumbers, electricians, landscapers",
+  "budget": "$0 (Zero recurring costs, zero mandatory external APIs, zero paid database requirements)",
+  "stack": {
+    "framework": "React 19 (SPA)",
+    "bundler": "Vite 8",
+    "language": "TypeScript 5.x / 7.x",
+    "styling": "Tailwind CSS v4",
+    "icons": "Lucide React",
+    "storage": "Browser localStorage (with JSON export/import & schema validation)"
+  },
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist server.js"
+  },
+  "features": [
+    {
+      "id": "dashboard",
+      "name": "Live Revenue & Pipeline Dashboard",
+      "description": "Displays total leads, new leads, active pipeline value, realized won revenue, quotes awaiting response, and prioritized upcoming follow-up queue."
+    },
+    {
+      "id": "lead-management",
+      "name": "Full Lead CRM with Validation",
+      "description": "Create, edit, search, filter, and delete leads with required field checks, unboxed metadata, and destructive confirmation modals."
+    },
+    {
+      "id": "quote-builder",
+      "name": "Itemized Service Quote Builder & PDF Print Engine",
+      "description": "Build multi-line service proposals with dynamic item addition, unit pricing, automatic subtotals, customizable taxes/discounts, and browser print-to-PDF formatting."
+    },
+    {
+      "id": "followup-assistant",
+      "name": "Home-Service Follow-Up Outreach Engine",
+      "description": "5 targeted home-service follow-up templates (First response, friendly reminder, quote check-in, final loop, booking welcome) with live merge-tags, copy-to-clipboard, WhatsApp (wa.me) launcher, and email client integration."
+    },
+    {
+      "id": "reports",
+      "name": "Conversion Analytics & Channel Reports",
+      "description": "Tracks win rate of closed opportunities, conversion ratios, service performance, lead acquisition channels, and overdue follow-up velocity with division-by-zero protection."
+    },
+    {
+      "id": "data-management",
+      "name": "Client-Side Persistence & Portability",
+      "description": "Safely stores data in browser localStorage with schema sanitization, JSON export/download, validated JSON import (merge/replace), and one-click demo data restoration."
+    }
+  ],
+  "deployment": {
+    "platform": "Vercel / GitHub Pages / Any Static Host",
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
+    "nodeVersion": ">=18.0.0",
+    "environmentVariablesRequired": false
+  },
+  "files": [
+    "index.html",
+    "metadata.json",
+    "package.json",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vercel.json",
+    "README.md",
+    "QA_REPORT.md",
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/index.css",
+    "src/types/index.ts",
+    "src/utils/formatters.ts",
+    "src/utils/templates.ts",
+    "src/utils/demoData.ts",
+    "src/utils/storage.ts",
+    "src/utils/downloadHelper.ts",
+    "src/components/Navbar.tsx",
+    "src/components/Toast.tsx",
+    "src/components/ConfirmDialog.tsx",
+    "src/components/DashboardView.tsx",
+    "src/components/LeadsView.tsx",
+    "src/components/LeadModal.tsx",
+    "src/components/QuotesView.tsx",
+    "src/components/QuoteModal.tsx",
+    "src/components/QuotePrintPreview.tsx",
+    "src/components/FollowUpAssistantView.tsx",
+    "src/components/ReportsView.tsx",
+    "src/components/SettingsDataView.tsx",
+    "src/components/Logo.tsx",
+    "public/favicon.svg",
+    "public/logo-icon.svg",
+    "public/logo-horizontal.svg"
+  ]
+}

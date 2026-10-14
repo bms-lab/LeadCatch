@@ -1,0 +1,326 @@
+import React, { useState, useMemo } from 'react';
+import {
+  FileText,
+  Plus,
+  Printer,
+  Edit2,
+  Trash2,
+  MessageSquare,
+  CheckCircle,
+  Calendar,
+  DollarSign,
+  Search,
+} from 'lucide-react';
+import { Quote, QuoteStatus, BusinessProfile, Lead } from '../types';
+import { formatCurrency, formatDate } from '../utils/formatters';
+
+interface QuotesViewProps {
+  quotes: Quote[];
+  leads: Lead[];
+  profile: BusinessProfile;
+  onOpenCreate: () => void;
+  onOpenEdit: (quote: Quote) => void;
+  onDeleteQuote: (quote: Quote) => void;
+  onUpdateStatus: (quoteId: string, status: QuoteStatus) => void;
+  onPrintPreview: (quote: Quote) => void;
+  onFollowUpOnQuote: (quote: Quote) => void;
+}
+
+export const QuotesView: React.FC<QuotesViewProps> = ({
+  quotes,
+  leads,
+  profile,
+  onOpenCreate,
+  onOpenEdit,
+  onDeleteQuote,
+  onUpdateStatus,
+  onPrintPreview,
+  onFollowUpOnQuote,
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const filteredQuotes = useMemo(() => {
+    return quotes.filter((q) => {
+      const query = searchQuery.toLowerCase().trim();
+      if (query) {
+        const matchesNum = q.quoteNumber.toLowerCase().includes(query);
+        const matchesCust = q.customerName.toLowerCase().includes(query);
+        const matchesAddress = q.customerAddress.toLowerCase().includes(query);
+        if (!matchesNum && !matchesCust && !matchesAddress) return false;
+      }
+
+      if (statusFilter !== 'all' && q.status !== statusFilter) {
+        return false;
+      }
+
+      return true;
+    }).sort((a, b) => b.issueDate.localeCompare(a.issueDate));
+  }, [quotes, searchQuery, statusFilter]);
+
+  // Aggregate metrics
+  const totalQuotedValue = quotes.reduce((acc, q) => acc + q.total, 0);
+  const pendingValue = quotes.filter((q) => q.status === 'sent').reduce((acc, q) => acc + q.total, 0);
+  const acceptedValue = quotes.filter((q) => q.status === 'accepted').reduce((acc, q) => acc + q.total, 0);
+
+  const statusColorClass = (status: QuoteStatus) => {
+    switch (status) {
+      case 'draft':
+        return 'text-slate-600 bg-slate-100 border-slate-200';
+      case 'sent':
+        return 'text-indigo-700 bg-indigo-50 border-indigo-200';
+      case 'accepted':
+        return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+      case 'declined':
+        return 'text-rose-700 bg-rose-50 border-rose-200';
+      default:
+        return 'text-slate-600 bg-slate-50 border-slate-200';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Quotes & Estimates</h1>
+          <p className="text-sm text-slate-600 mt-1">
+            Create professional itemized quotes, print to PDF, and monitor acceptance.
+          </p>
+        </div>
+        <div>
+          <button
+            onClick={onOpenCreate}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Quote</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Summary KPI Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            Awaiting Response
+          </span>
+          <div className="text-xl font-bold font-mono tabular-nums text-indigo-700 mt-1">
+            {formatCurrency(pendingValue, profile.currencySymbol)}
+          </div>
+          <span className="text-xs text-slate-500 mt-0.5 block">
+            {quotes.filter((q) => q.status === 'sent').length} quotes currently with clients
+          </span>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            Accepted / Won
+          </span>
+          <div className="text-xl font-bold font-mono tabular-nums text-emerald-700 mt-1">
+            {formatCurrency(acceptedValue, profile.currencySymbol)}
+          </div>
+          <span className="text-xs text-slate-500 mt-0.5 block">
+            {quotes.filter((q) => q.status === 'accepted').length} signed & approved quotes
+          </span>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            Total Quoted (All Time)
+          </span>
+          <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-1">
+            {formatCurrency(totalQuotedValue, profile.currencySymbol)}
+          </div>
+          <span className="text-xs text-slate-500 mt-0.5 block">
+            Across {quotes.length} total generated quotes
+          </span>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by quote number, customer name, address..."
+              className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-slate-900 transition-colors"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-slate-900 text-slate-700"
+            >
+              <option value="all">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="sent">Sent to Customer</option>
+              <option value="accepted">Accepted</option>
+              <option value="declined">Declined</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Quotes Table */}
+      {filteredQuotes.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center shadow-xs">
+          <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
+            <FileText className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">No quotes found</h3>
+          <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
+            {searchQuery || statusFilter !== 'all'
+              ? 'Try modifying your search query or status filter.'
+              : 'Create your first itemized service estimate to deliver to a client.'}
+          </p>
+          <div className="mt-5">
+            <button
+              onClick={onOpenCreate}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create First Quote</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-semibold text-slate-600">
+                  <th className="py-3 px-4">Quote # & Issue Date</th>
+                  <th className="py-3 px-4">Customer Details</th>
+                  <th className="py-3 px-4">Line Items</th>
+                  <th className="py-3 px-4 text-right">Total Amount</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredQuotes.map((q) => (
+                  <tr key={q.id} className="hover:bg-slate-50/60 transition-colors group">
+                    {/* Quote # and Date */}
+                    <td className="py-3.5 px-4 align-top">
+                      <div className="font-mono font-bold text-slate-900">{q.quoteNumber}</div>
+                      <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3 text-slate-400" />
+                        <span>Issued {formatDate(q.issueDate)}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Valid until {formatDate(q.validUntilDate)}
+                      </div>
+                    </td>
+
+                    {/* Customer */}
+                    <td className="py-3.5 px-4 align-top">
+                      <div className="font-semibold text-slate-900">{q.customerName}</div>
+                      {q.customerAddress && (
+                        <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+                          {q.customerAddress}
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-400 mt-1 font-mono tabular-nums">
+                        {q.customerPhone || q.customerEmail}
+                      </div>
+                    </td>
+
+                    {/* Items preview */}
+                    <td className="py-3.5 px-4 align-top text-xs text-slate-600">
+                      <div className="font-medium text-slate-900">
+                        {q.items.length} {q.items.length === 1 ? 'item' : 'items'}
+                      </div>
+                      <div className="text-slate-500 line-clamp-1 mt-0.5">
+                        {q.items.map((i) => i.description).join(', ')}
+                      </div>
+                    </td>
+
+                    {/* Total Amount */}
+                    <td className="py-3.5 px-4 align-top text-right font-mono tabular-nums">
+                      <div className="font-bold text-slate-900 text-base">
+                        {formatCurrency(q.total, profile.currencySymbol)}
+                      </div>
+                      {q.taxPercent > 0 && (
+                        <div className="text-[11px] text-slate-400">
+                          Incl. {q.taxPercent}% Tax
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Status */}
+                    <td className="py-3.5 px-4 align-top">
+                      <select
+                        value={q.status}
+                        onChange={(e) => onUpdateStatus(q.id, e.target.value as QuoteStatus)}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-md border cursor-pointer focus:outline-hidden ${statusColorClass(
+                          q.status
+                        )}`}
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="sent">Sent</option>
+                        <option value="accepted">Accepted</option>
+                        <option value="declined">Declined</option>
+                      </select>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 align-top text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Print / PDF preview */}
+                        <button
+                          onClick={() => onPrintPreview(q)}
+                          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                          title="Print or view quote"
+                          aria-label={`Print ${q.quoteNumber}`}
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+
+                        {/* Follow up on quote */}
+                        <button
+                          onClick={() => onFollowUpOnQuote(q)}
+                          className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
+                          title="Draft follow-up message for this quote"
+                          aria-label={`Follow up on ${q.quoteNumber}`}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit */}
+                        <button
+                          onClick={() => onOpenEdit(q)}
+                          className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                          title="Edit quote"
+                          aria-label={`Edit ${q.quoteNumber}`}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+
+                        {/* Delete */}
+                        <button
+                          onClick={() => onDeleteQuote(q)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                          title="Delete quote"
+                          aria-label={`Delete ${q.quoteNumber}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
